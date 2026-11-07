@@ -30,6 +30,7 @@
 ### 3.1 宿主与插件
 
 - 宿主版本：`0.2.2-rc.1`（需提供 `session/*` 网关与插件 RPC）。
+- 插件版本：成绩基线为 `dsh-memu-memory` `1.2.7`；`1.2.8` 已适配（种子会话在每个 cutoff 前设置该轮 `sceneTime`，RPC 与参数向后兼容），可直接沿用本手册流程，但需重新跑分后才能把成绩记到 `1.2.8`。
 - profile：`memubench`。
 - 插件通过 `profiles/memubench/node_modules/dsh-memu-memory` 加载；该目录应指向 `<PLUGIN_ROOT>`。
 - 插件私有库绑定 `<REPO_ROOT>/workspace`。
@@ -332,13 +333,15 @@ node scripts/token-report.mjs \
 
 ```bash
 node scripts/report-714.mjs --label <label>
+# 历史批次想固定当时的插件版本时：
+node scripts/report-714.mjs --label <label> --plugin-version 1.2.7
 ```
 
 输出：
 
 | 文件 | 内容 |
 |---|---|
-| `results/report-714-<label>.md` | 得分、分 Persona / 标签、错误、可错可对、成本 |
+| `results/report-714-<label>.md` | 得分、分 Persona / 标签、错误、可错可对、成本；含实际加载的插件版本、召回意图上限与注入预算 |
 | `results/report-714-<label>.json` | 同内容的机器可读版本 |
 
 报告分类：

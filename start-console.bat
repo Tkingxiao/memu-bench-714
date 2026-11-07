@@ -1,27 +1,37 @@
 @echo off
 rem ============================================================
 rem memu-bench-714 一键启动：宿主(39771) → cookie → 面板(39772) → 浏览器
-rem 约束：DSH 路径与本仓库路径均无空格，故子命令里不加引号以免 cmd 嵌套引号问题；
-rem       每步都幂等——端口已在监听就直接跳过，可反复双击。
+rem 每步都幂等：先探 TCP/HTTP，已在监听就跳过；启动后等到真正可服务再开浏览器。
+rem 路径一律加引号，仓库或 %APPDATA% 含空格也能用。
 rem ============================================================
 chcp 65001 >nul
+setlocal EnableExtensions
 title Memu Bench 控制台启动器
 cd /d "%~dp0"
-set "DSH_HOME=%APPDATA%/in.dsh-plug.dsh-launcher/homes/0.2.2-rc.1"
-set "DSH_BIN=%APPDATA%/in.dsh-plug.dsh-launcher/versions/0.2.2-rc.1/node_modules/@deepseek-ai/dsh/lib/bin.js"
-if not exist logs mkdir logs
+set "ROOT=%~dp0"
+set "DSH_HOME=%APPDATA%\in.dsh-plug.dsh-launcher\homes\0.2.2-rc.1"
+set "DSH_BIN=%APPDATA%\in.dsh-plug.dsh-launcher\versions\0.2.2-rc.1\node_modules\@deepseek-ai\dsh\lib\bin.js"
+if not exist "logs" mkdir "logs"
+
+if not exist "%DSH_BIN%" (
+  echo [宿主] 找不到 DSH 入口：
+  echo        %DSH_BIN%
+  echo        请先安装 DSH 0.2.2-rc.1，或修改本脚本里的 DSH_BIN。
+  pause
+  exit /b 1
+)
 
 rem ---- 1) 记忆宿主 :39771 ----
-netstat -ano | findstr ":39771" | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 goto host_up
+node -e "const s=require('net').connect(39771,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1500)"
+if not errorlevel 1 goto host_up
 echo [宿主] 启动中（端口 39771）...
-del /q logs\host.log 2>nul
-start "memu-bench-host" /min cmd /c "cd /d %~dp0workspace && node %DSH_BIN% --profile memubench --no-open --port 39771 > ..\logs\host.log 2>&1"
+del /q "logs\host.log" 2>nul
+start "memu-bench-host" /min /d "%ROOT%workspace" cmd /c "node "%DSH_BIN%" --profile memubench --no-open --port 39771 > "%ROOT%logs\host.log" 2>&1"
 set /a tries=0
 :wait_token
 ping -n 3 127.0.0.1 >nul
-findstr /c:"dsh web" logs\host.log >nul 2>&1
-if %errorlevel%==0 goto token_ok
+findstr /c:"dsh web" "logs\host.log" >nul 2>&1
+if not errorlevel 1 goto token_ok
 set /a tries+=1
 if %tries% lss 30 goto wait_token
 echo [宿主] 60 秒内未取得 token，见 logs\host.log
@@ -41,11 +51,16 @@ if errorlevel 1 (
   ping -n 4 127.0.0.1 >nul
   node scripts\host-client.mjs init
 )
+if errorlevel 1 (
+  echo [宿主] cookie 初始化仍失败，见上方输出。
+  pause
+  exit /b 1
+)
 goto host_done
 :host_up
 echo [宿主] 已在运行（端口 39771）
-if not exist logs\host-cookie.txt (
-  if exist logs\host-url.txt (
+if not exist "logs\host-cookie.txt" (
+  if exist "logs\host-url.txt" (
     echo [宿主] 补做 cookie 初始化...
     node scripts\host-client.mjs init
   ) else (
@@ -55,11 +70,20 @@ if not exist logs\host-cookie.txt (
 :host_done
 
 rem ---- 2) 可视化面板 :39772 ----
-netstat -ano | findstr ":39772" | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 goto dash_up
+node -e "fetch('http://127.0.0.1:39772/api/host/status',{signal:AbortSignal.timeout(1500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+if not errorlevel 1 goto dash_up
 echo [面板] 启动中（端口 39772）...
-start "memu-dashboard" /min cmd /c "cd /d %~dp0 && node dashboard\server.mjs > logs\dashboard.log 2>&1"
-ping -n 3 127.0.0.1 >nul
+start "memu-dashboard" /min /d "%ROOT%" cmd /c "node "%ROOT%dashboard\server.mjs" > "%ROOT%logs\dashboard.log" 2>&1"
+set /a dtries=0
+:wait_dash
+ping -n 2 127.0.0.1 >nul
+node -e "fetch('http://127.0.0.1:39772/api/host/status',{signal:AbortSignal.timeout(1500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+if not errorlevel 1 goto dash_up
+set /a dtries+=1
+if %dtries% lss 20 goto wait_dash
+echo [面板] 启动超时，见 logs\dashboard.log
+pause
+exit /b 1
 :dash_up
 echo [面板] http://127.0.0.1:39772
 

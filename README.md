@@ -90,6 +90,7 @@
 
 | 项 | 配置 |
 |---|---|
+| 插件 | `dsh-memu-memory` `1.2.7`（成绩基线）；`1.2.8` 已核对兼容、未重跑 |
 | 记忆引擎 | MemU `0.11.0b3`（Python venv） |
 | 记忆后端 | `api`（`memoryBackend=api`） |
 | 向量来源 | `local`（`vectorSource=local`） |
@@ -103,7 +104,7 @@
 
 ## 当前参考基线
 
-最近一次全量评测（2026-11-06，`dys-router / deepseek-v4.1-flash`，思考强度 high）：
+最近一次全量评测（2026-11-06，插件 `dsh-memu-memory` `1.2.7`，`dys-router / deepseek-v4.1-flash`，思考强度 high）：
 
 | 指标 | 数值 |
 |---|---|
@@ -114,6 +115,25 @@
 | 可错可对 | 8 |
 | 总成本（谷价） | ¥24.45 |
 
+表内成绩属插件 `1.2.7`。仓库已按 `1.2.8` 适配：考试执行器在每个 cutoff 前把种子会话的 `sceneTime` 设为该轮逻辑时间，考试会话同样使用该题的场景时间；并核对 `initSession`、`setMemoryContext`、`listPrivate`、`listReviews`、`resolveReview`、`archiveMemory`、`deleteMemory`、`generatePrivate` 等调用与参数均向后兼容。尚未用 `1.2.8` 重跑全量，因此不把旧成绩写成新版本成绩。
+
+### 插件 1.2.8 的评测面变化
+
+- **召回**：按查询意图（`date` / `entity` / `conflict` / `commitment` / `boundary`）分路取数，冲突版本成对召回并注入冲突卡；命中条目沿显式 `links` 扩展一跳。
+- **写入**：落 `absolute_date` / `date_precision` / `valid_from` / `valid_to`、`speaker_id` / `source_kind`、`commitment`；助手自己的承诺和计划不再记成用户原话；同一事实可保留多版本。
+- **注入**：`never_say` 不再进入自动注入面，`only_if_asked` 只在边界意图放行；到期未完成的承诺最多注入 3 条。
+- **提示词**：RP guide / policy / consolidation 与整理 worker 任务书补充上述字段要求。
+
+本仓库的对应适配：种子会话与考试会话都按 cutoff 设置 `sceneTime`；考试提示允许按时间、说话人区分冲突双方；判分提示不把“保留冲突”误判为 `错否`；报告自动读取 profile 中实际加载的插件版本。表内成绩仍是 `1.2.7` 结果，`1.2.8` 需重跑后另行记录。
+
+### 1.2.8 的省 token 变化
+
+- 召回候选不再一律拉满：按意图分档（`general` 5 / `date` 8 / `entity` 8 / `conflict` 6 / `commitment` 5 / `boundary` 5，封顶 20）。
+- 冲突成对注入压缩成一张 200 字以内的冲突卡，而不是两条全文。
+- 到期承诺提醒单独受 240 token 上限约束，最多 3 条。
+- `injectionTotalTokens`（默认 2000）是整条插件消息的外层硬上限；`anchorTokens` / `turnTokens` 不能相加越界；guide 超出总预算时整条跳过。
+- 报告新增“召回意图上限”和“注入预算”两行，直接从实际插件 state / `lib/budget.js` 读取，不复制默认常量。
+
 详细分 Persona、考点和成本见 [docs/714-eval-20261106.md](docs/714-eval-20261106.md)。
 
 ## 快速开始
@@ -122,7 +142,7 @@
 
 - Node.js 18+（仓库自带脚本与零依赖控制台）
 - DSH 宿主 `0.2.2-rc.1`（提供 `session/*` 与插件 RPC）
-- `dsh-memu-memory` 插件（通过 profile 的 `node_modules` junction 加载）
+- `dsh-memu-memory` 插件（`1.2.7` 成绩基线；`1.2.8` 兼容），通过 profile 的 `node_modules` junction 加载
 - Python 3（`grading/grade.py` 用于离线判分回算）
 
 ### 1. 准备环境

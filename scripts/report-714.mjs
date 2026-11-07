@@ -15,12 +15,13 @@
  * 用法：
  *   node report-714.mjs --label dashboard-20261106-124824 \
  *     [--answers results/answers-dashboard-<label>.jsonl] \
+ *     [--plugin-version 1.2.7] \
  *     [--out results/report-714-<label>.md]
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(HERE, '..')
@@ -74,6 +75,41 @@ function readVectorInfo() {
     database: 'libraries/lib_<id>.<fingerprint>.g' + (a.generation ?? '?') + '.sqlite3',
     recall: 'managed-vector-rrf',
   }
+}
+
+/** 本机 profile 里实际加载的插件版本（junction 指向源码目录，package.json 可读）。 */
+function readPluginInfo() {
+  const candidates = [
+    path.join(DSH_HOME, 'profiles', 'memubench', 'node_modules', 'dsh-memu-memory', 'package.json'),
+    path.join(ROOT, '..', 'dsh-memu-memory', 'package.json'),
+  ]
+  for (const file of candidates) {
+    const pkg = readJson(file, null)
+    if (pkg && pkg.name === 'dsh-memu-memory') return { version: pkg.version || 'unknown', path: file }
+  }
+  return { version: 'unknown', path: null }
+}
+
+/** 1.2.8 的注入预算与省 token 配置：从实际插件 state 读取，避免报告写成默认值。 */
+function readInjectionInfo() {
+  const state = readJson(path.join(MEMU_HOME, 'state.json'), {}) || {}
+  const s = state.settings || {}
+  return {
+    autoInject: s.autoInject !== false,
+    privateTopK: s.privateTopK ?? null,
+    anchorTokens: s.anchorTokens ?? null,
+    turnTokens: s.turnTokens ?? null,
+    injectionTotalTokens: s.injectionTotalTokens ?? null,
+  }
+}
+
+/** 直接读取插件 lib/budget.js 的意图候选上限，不在评测仓库里复制一份常量。 */
+async function readIntentBudget(plugin) {
+  if (!plugin?.path) return null
+  try {
+    const mod = await import(pathToFileURL(path.join(path.dirname(plugin.path), 'lib', 'budget.js')).href)
+    return { recallIntentTopK: mod.RECALL_INTENT_TOPK || null }
+  } catch { return null }
 }
 
 const scored = readJsonl(path.join(RESULTS, `scored-${LABEL}.jsonl`))
@@ -161,11 +197,21 @@ function detailList(list) {
 }
 
 const vec = readVectorInfo()
+const detectedPlugin = readPluginInfo()
+const plugin = flag('plugin-version')
+  ? { ...detectedPlugin, version: String(flag('plugin-version')) }
+  : detectedPlugin
+const injection = readInjectionInfo()
+const intentBudget = await readIntentBudget(plugin)
+const intentCapLine = intentBudget?.recallIntentTopK
+  ? Object.entries(intentBudget.recallIntentTopK).map(([k, v]) => `${k} ${v}`).join(' · ') + ' · 封顶 20'
+  : 'unknown'
 
 const lines = [
   `# Memu Bench 714 全量评测 · 得分汇报`,
   '',
   `- 批次：\`${LABEL}\``,
+  `- 插件：dsh-memu-memory \`${plugin.version}\``,
   `- 模型：dys-router / deepseek-v4.1-flash · 思考强度 high`,
   `- 规模：714 题全量 · 并发 8 · 每轮按 cutoff 重建记忆库`,
   `- 判分：deepseek-v4.1-flash · 新填空判据`,
@@ -174,6 +220,7 @@ const lines = [
   '',
   '| 项 | 配置 |',
   '|---|---|',
+  `| 插件 | \`dsh-memu-memory\` \`${plugin.version}\` |`,
   `| 记忆引擎 | MemU \`${vec.engine}\`（Python venv） |`,
   `| 记忆后端 | \`${vec.backend}\` |`,
   `| 向量来源 | \`${vec.vectorSource}\` |`,
@@ -181,6 +228,8 @@ const lines = [
   `| 向量库 | 每库独立 SQLite：\`${vec.database}\` |`,
   `| 向量代际 | generation ${vec.generation ?? '?'}${vec.fingerprint ? `，fingerprint \`${vec.fingerprint}\`` : ''} |`,
   `| 召回 | \`${vec.recall}\` |`,
+  `| 召回意图上限 | ${intentCapLine} |`,
+  `| 注入预算 | privateTopK ${injection.privateTopK ?? '?'} · anchorTokens ${injection.anchorTokens ?? '?'} · turnTokens ${injection.turnTokens ?? '?'} · injectionTotalTokens ${injection.injectionTotalTokens ?? '?'} |`,
   '',
   '## 总分',
   '',
@@ -234,6 +283,9 @@ const lines = [
 fs.writeFileSync(OUT, lines.join('\n'), 'utf8')
 fs.writeFileSync(JSON_OUT, JSON.stringify({
   label: LABEL,
+  plugin,
+  injection,
+  intentTopK: intentBudget?.recallIntentTopK || null,
   model: 'dys-router/deepseek-v4.1-flash',
   vector: vec,
   counts: { total: rows.length, pass: pass.length, error: errors.length, ambiguous: ambiguous.length },

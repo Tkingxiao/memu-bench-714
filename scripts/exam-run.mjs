@@ -140,6 +140,17 @@ function loadPrefix(record) {
   return rows.filter((r) => Date.parse(r['逻辑时间']) <= now)
 }
 
+/**
+ * 每个 cutoff 的场景时间 = 该轮历史的逻辑时间。
+ * 1.2.8 起插件把相对日期（明天/下周X/月底）按 sceneTime 落绝对日期；
+ * 种子会话必须跟着 checkpoint 走，不能停在第一次绑定时的时刻，更不能落到真实时钟。
+ */
+function sceneTimeMap(historyFile) {
+  const rows = fs.readFileSync(path.join(DATASET, historyFile), 'utf8')
+    .split('\n').map((s) => s.trim()).filter(Boolean).map((s) => JSON.parse(s))
+  return new Map(rows.map((row) => [Number(row['轮次']), row['逻辑时间']]))
+}
+
 /** 最近六轮内联转录（E2 形态）。 */
 function recentBlock(prefix, six = 6) {
   const tail = prefix.slice(-six)
@@ -155,6 +166,7 @@ function examPrompt(record, prefix, slots = 2) {
   const blanks = Array.from({ length: Math.max(2, slots) }, (_, i) => `答案${i + 1}：`).join('\n')
   return [
     '【背景说明】下面是这段对话最近几轮的原文记录，供你回忆上下文。更早的事情如果你记得可以自然使用，不记得就直说不知道，不要编造。',
+    '系统可能另外提供长期记忆片段；其中带有的时间、说话人/来源、冲突版本或到期提醒等标记是记忆结构，不是新的用户发言，按标记理解即可。',
     '另外，这是一个长期记忆评测场景：请以对话里那位助手的方式回答最后的问题。',
     '【评测约束】本题是只读评测：只回答问题，不要调用任何写入或修改记忆的工具，也不要把本题内容写进记忆。',
     '',
@@ -171,6 +183,7 @@ function examPrompt(record, prefix, slots = 2) {
     '1. 题目问到的内容必须填完整，包括题目隐含的子项（例如问日期就要交代公历、农历；问身份就把能确认的身份信息写全）。',
     '2. 与题目无关的内容不要补充、不要闲聊，也不要主动提及旧事。',
     '3. 不知道的子项写「不知道」，不要猜；某个空确实不适用时写「无」。',
+    '4. 记忆里若同时给出同一件事的两种说法，先按时间、说话人和来源判断；仍无法确认时，在对应空里说明两种说法或写明无法确认，不要自行删掉一种。',
   ].join('\n')
 }
 
@@ -498,6 +511,7 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
   }
   const cutoffs = [...groups.keys()].sort((a, b) => a - b)
   const historyFile = path.join(DATASET, records[0].history_file)
+  const sceneTimes = sceneTimeMap(records[0].history_file)
   const rows = new Map()
   const saveState = () => writeJsonAtomic(statePath, {
     label, persona, seedSid, libraryId, ckRoot, seededTo, doneCutoffs: [...doneCutoffs],
@@ -524,6 +538,15 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
       if (!libraryId) throw new Error(`no library created for checkpoint ${tag}`)
       console.log(`  memory library ${libraryId} · ${tag}`)
       saveState()
+    }
+    // 1.2.8：整理与写入都按该 checkpoint 的逻辑时间解析相对日期（不能落系统时钟）。
+    const sceneTime = sceneTimes.get(Number(cutoff)) || groups.get(cutoff)[0]?.now || null
+    if (sceneTime) {
+      try {
+        await pluginRpc('setMemoryContext', { sessionId: seedSid, context: null, sceneTime })
+      } catch (error) {
+        console.warn(`  ${tag} seed sceneTime skipped: ${String(error?.message || error).slice(0, 120)}`)
+      }
     }
     const cons = await consolidateAll(seedSid, tag, ckRoot)
     if (!cons.ok) console.warn(`  ${tag} consolidation incomplete: ${cons.error}`)
