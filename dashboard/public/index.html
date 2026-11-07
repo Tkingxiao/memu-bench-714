@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <!-- 约束：本页零网络依赖——不引 CDN、不引外部字体，样式只走本地 style.css，脚本只走本地 app.js -->
+  <!-- data-theme="light"：浅色为默认主题；深色由 #themeToggle 切到 dark，两套变量组见 style.css 的 :root / :root[data-theme="dark"] -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Memu Bench 控制台</title>
+  <!-- 内联 favicon：不落外部文件，也避免浏览器对 /favicon.ico 的 404 请求 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%236c8cff'/%3E%3Ctext x='32' y='44' font-size='34' font-family='sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EM%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 宿主离线横幅：默认 hidden，app.js 探测 127.0.0.1:39771 失败时移除 hidden -->
+  <div id="hostBanner" class="banner hidden">⚠ 记忆宿主未启动（127.0.0.1:39771）——面板为只读模式，无法发起跑批。启动方法见 RUNBOOK §1。</div>
+
+  <!-- 顶栏：品牌 + 页签 + 主题切换 + 宿主状态灯；四块布局由 style.css 的 .topbar 弹性排布 -->
+  <header class="topbar">
+    <div class="brand"><h1>Memu Bench 控制台</h1><span id="datasetBadge" class="badge">714 题</span></div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">总览</button>
+      <button class="tab" data-tab="bank">题库</button>
+      <button class="tab" data-tab="run">运行</button>
+      <button class="tab" data-tab="token">Token</button>
+      <button class="tab" data-tab="settings">设置</button>
+    </nav>
+    <!-- 手动刷新：外部改动 results/logs 文件后不必刷新页面；按钮行为在 app.js -->
+    <button id="refreshBtn" class="btn btn-ghost" title="重新读取题库、成绩与 Token 台账">↻ 刷新</button>
+    <!-- 主题切换：app.js 负责改 html[data-theme] 并替换图标，按钮自身不含行为 -->
+    <button id="themeToggle" class="btn btn-ghost" title="切换深色/浅色主题">🌙</button>
+    <div class="host-state"><span id="hostDot" class="dot"></span><span id="hostText">检测中…</span></div>
+  </header>
+
+  <main>
+    <!-- 总览：6 张统计卡 + 迷你跑批卡 + 三张通过率条形图（图表行由 app.js 注入 .bar-row） -->
+    <section id="tab-overview" class="tab-panel active">
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">已作答</div><div class="stat-value" id="statAnswered">—</div></div>
+        <div class="stat-card"><div class="stat-label">已判分</div><div class="stat-value" id="statScored">—</div></div>
+        <div class="stat-card"><div class="stat-label">通过</div><div class="stat-value" id="statPassed">—</div></div>
+        <div class="stat-card"><div class="stat-label">通过率</div><div class="stat-value" id="statPassRate">—</div></div>
+        <div class="stat-card"><div class="stat-label">Token 消耗</div><div class="stat-value" id="statTokens">—</div></div>
+        <div class="stat-card"><div class="stat-label">其中估算</div><div class="stat-value" id="statTokensSub">—</div></div>
+      </div>
+      <div id="runMiniCard" class="card hidden">
+        <div class="mini-head"><span>当前跑批</span><button class="btn btn-ghost" data-action="goto-run">去运行页 →</button></div>
+        <div class="progress"><div id="miniFill" class="progress-fill"></div></div>
+        <div id="miniText" class="muted">—</div>
+      </div>
+      <!-- 总览二排：状态分布 / 最近一次考试 / 最近判分批次（内容由 app.js 注入） -->
+      <div class="chart-grid">
+        <div class="card">
+          <h3>题库状态分布</h3>
+          <div id="statusBar" class="stack-bar"></div>
+          <div id="statusCounts" class="legend muted small">—</div>
+          <div class="form-actions"><button class="btn btn-ghost" data-action="goto-bank">去题库 →</button></div>
+        </div>
+        <div class="card">
+          <h3>最近一次考试</h3>
+          <div id="lastRunBody" class="muted">—</div>
+          <div class="form-actions"><button class="btn btn-ghost" data-action="goto-token">看 Token 明细 →</button></div>
+        </div>
+        <div class="card">
+          <h3>最近判分批次</h3>
+          <div id="latestJudgeBody" class="muted">—</div>
+          <div class="form-actions"><button class="btn btn-ghost" data-action="goto-score">去评分管理 →</button></div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="card"><h3>通过率 · 按 Persona</h3><div id="chartPersona" class="bar-chart"></div></div>
+        <div class="card"><h3>通过率 · 按考点标签</h3><div id="chartTags" class="bar-chart"></div></div>
+        <div class="card"><h3>通过率 · 按间隔天数</h3><div id="chartInterval" class="bar-chart"></div></div>
+      </div>
+      <div class="card">
+        <h3>判分错误分类（累计，按每题最新判分行计）</h3>
+        <div id="chartFlags" class="bar-chart"></div>
+      </div>
+    </section>
+
+    <!-- 题库：筛选条 + 表格；数据行由 app.js 注入 tr[data-qid] 到 #bankBody -->
+    <section id="tab-bank" class="tab-panel">
+      <div class="filters card">
+        <input id="bankSearch" type="search" placeholder="搜索题目 ID 或题面…">
+        <select id="bankPersona"><option value="">全部 Persona</option></select>
+        <select id="bankStatus">
+          <option value="">全部状态</option><option value="pending">未作答</option><option value="answered">已作答</option><option value="passed">通过</option><option value="failed">未通过</option>
+        </select>
+        <button id="bankClear" class="btn btn-ghost" disabled>清除筛选</button>
+        <span id="bankCount" class="muted"></span>
+        <button id="bankRunSelected" class="btn btn-primary" disabled>运行选中（0）</button>
+        <button id="bankResetScores" class="btn btn-danger" title="删除所有作答、判据包、判分回执与评分结果，题库回到未作答；记忆库/会话保留">全新重置（清空作答+判分）</button>
+      </div>
+      <div class="card table-card">
+        <table id="bankTable"><thead><tr><th class="col-select"><input id="bankSelectAll" type="checkbox" title="全选当前筛选结果"></th><th>ID</th><th>Persona</th><th>Cutoff</th><th>间隔(天)</th><th>考点</th><th>状态</th><th>题目</th></tr></thead><tbody id="bankBody"></tbody></table>
+        <div id="bankEmpty" class="empty hidden">没有符合筛选条件的题目</div>
+      </div>
+    </section>
+
+    <!-- 运行：发起表单 → 判分 → 外部判分 → 评分管理 → 进度面板 → 实时日志；各块显隐全部由 app.js 切换 hidden -->
+    <section id="tab-run" class="tab-panel">
+      <div class="card launcher">
+        <h3>发起跑批（E2 考试形态 · 每轮重建记忆）</h3>
+        <div class="form-row"><label>Persona</label><div id="runPersonaChips" class="chips"></div></div>
+        <div class="form-row"><label>题数</label><div id="countChips" class="chips">
+          <button class="chip" data-count="1">1</button><button class="chip active" data-count="3">3</button><button class="chip" data-count="5">5</button><button class="chip" data-count="10">10</button><button class="chip" data-count="20">20</button><button class="chip" data-count="50">50</button><button class="chip" data-count="all">全部</button>
+          <span class="muted small">自定义</span>
+          <input id="countCustom" type="number" min="1" value="3" aria-label="自定义题数">
+        </div></div>
+        <div class="form-row"><label>起始序号</label><input id="runStart" type="number" min="1" value="1"></div>
+        <div class="form-row"><label>并发题数</label><input id="runConcurrency" type="number" min="1" max="8" value="4" aria-label="并发题数"><span class="muted small">1–8；同一 cutoff 的题并行，跨 cutoff 按时间顺序串行以免记忆泄漏</span></div>
+        <p id="runTotalHint" class="muted small">本次共 0 题</p>
+        <div class="form-actions">
+          <button id="runGo" class="btn btn-primary">开始评测</button>
+          <button id="runStop" class="btn btn-danger hidden">停止</button>
+        </div>
+        <p class="muted small">每组按所选题数切片后合并；可多选 Persona 一次跑多组。每轮先按 cutoff 重建记忆库再考，题量越大准备越久。</p>
+      </div>
+      <!-- 判分卡：#judgeBtn/#judgePanel（含 #judgeFill/#judgeText）自 launcher 卡迁入此处，launcher 内原位置已删 -->
+      <div class="card" id="judgeCard">
+        <h3>判分（LLM 判分员）</h3>
+        <div class="form-row"><label>作答文件</label><select id="judgeAnswers"></select></div>
+        <!-- 已有 provider 可选：选中后自动带出模型/端点，key 留空则由服务端解析该 provider 的 key -->
+        <div class="form-row"><label>Provider</label><select id="judgeProvider"><option value="">自定义（下方手填）</option></select></div>
+        <div id="judgeProviderInfo" class="field-hint muted small">选择已有 provider 会自动填模型与端点；Key 留空则使用该 provider 的 key。</div>
+        <div class="form-row"><label>判分模型</label><input id="judgeModel" placeholder="默认 deepseek-v4.1-flash"></div>
+        <div class="form-row"><label>API 端点</label><input id="judgeBase" placeholder="默认 https://router.dys.asia/v1"></div>
+        <div class="form-row"><label>API Key</label><input id="judgeKey" type="password" placeholder="留空则用 bench profile 内的 key"></div>
+        <div class="form-row"><label>判分批大小</label><input id="judgeBatch" type="number" min="1" max="100" value="32" aria-label="判分批大小"><span class="muted small">一次请求判多少题；20 题可设 20–32，越大越省请求</span></div>
+        <label class="check-row"><input id="judgeKeep" type="checkbox"> 判分后保留会话与记忆库（默认不勾选 = 判分成功后自动执行 bench-reset 清理，防止残留记忆干扰后续测试）</label>
+        <label class="check-row"><input id="judgeAuto" type="checkbox"> 考试结束后自动判分（按上方模型与 keep 设置执行，直接消耗额度）</label>
+        <div class="form-actions">
+          <!-- 判分与考试解耦：按钮常驻，空闲时对任意作答文件手动发起 -->
+          <button id="judgeBtn" class="btn btn-primary">开始判分</button>
+          <button id="benchResetBtn" class="btn btn-danger">收尾清理（bench-reset）</button>
+        </div>
+        <div id="judgePanel" class="hidden">
+          <div class="progress"><div id="judgeFill" class="progress-fill"></div></div>
+          <div id="judgeText" class="muted">—</div>
+        </div>
+      </div>
+      <!-- 外部判分卡：生成判分包交给外部模型，结果文件直接从磁盘选取回算，离线不耗额度 -->
+      <div class="card" id="externalCard">
+        <h3>外部模型判分（复制判分包 → 选结果文件回算）</h3>
+        <div class="form-row"><label>作答文件</label><select id="extAnswers"></select><button id="extPrepare" class="btn">生成判分包</button></div>
+        <textarea id="extPromptBox" class="mono ext-box hidden" readonly></textarea>
+        <div class="form-actions"><button id="extCopy" class="btn hidden">复制整包给外部模型</button><span id="extPrepInfo" class="muted small"></span></div>
+        <div class="form-row"><label>判分结果文件</label><input id="extReviewsFile" type="file" accept=".json,.jsonl,.txt"><span id="extFileInfo" class="muted small"></span></div>
+        <div class="form-row"><label>结果预览</label><textarea id="extReviewsBox" class="ext-box" placeholder="选择上方文件后自动填入；备用：也可直接把外部判分 JSON（数组或逐行）粘贴到这里"></textarea></div>
+        <div class="form-actions"><button id="extImport" class="btn btn-primary">导入并回算成绩（离线，不耗额度）</button></div>
+      </div>
+      <!-- 评分管理卡：批次选择 + 离线重算 / 重置判分结果 -->
+      <div class="card" id="scoreManageCard">
+        <h3>评分管理</h3>
+        <div class="form-row"><label>成绩批次</label><select id="scoreLabel"></select></div>
+        <!-- 批次读数紧跟下拉，别让用户跨过按钮去找状态 -->
+        <div id="scoreManageInfo" class="field-hint muted small">暂无判分批次</div>
+        <div class="form-actions">
+          <button id="scoreRescore" class="btn">重读重算（离线回算 summary）</button>
+          <button id="scoreReset" class="btn btn-danger">重置判分结果</button>
+        </div>
+        <label class="check-row"><input id="scoreIncludeReviews" type="checkbox"> 连同 reviews 一起删除（之后需重新判分才能出分）</label>
+        <div class="field-hint muted small">重置默认只删 scored/summary，作答保留；判分编辑在题库详情抽屉里进行。</div>
+      </div>
+      <div id="runPanel" class="card hidden">
+        <div class="progress-head"><span id="runProgressText">—</span><span id="runElapsed" class="muted mono"></span><span id="runEta" class="muted mono"></span></div>
+        <div class="progress lg"><div id="runProgressFill" class="progress-fill"></div></div>
+        <div id="runCurrent" class="current-card">
+          <div><span class="muted">当前题</span> <span id="runCurrentQid" class="mono">—</span></div>
+          <div><span id="runCurrentState" class="state-pill">—</span> <span id="runCurrentAttempt" class="muted"></span></div>
+          <div id="runCurrentTokens" class="muted mono"></div>
+        </div>
+        <div id="runList" class="run-list"></div>
+        <div id="runOutFile" class="muted mono small"></div>
+      </div>
+      <!-- 实时日志卡：app.js 逐行注入 .log-line，错误行挂 .log-err -->
+      <div class="card">
+        <h3>实时日志</h3>
+        <div id="runLog" class="run-log mono"></div>
+      </div>
+    </section>
+
+    <!-- Token：全部按考试轮次分列（批次选择 → 五卡 → 用途总览 → 逐题）；
+         api-log 只在底部留一个小框做全局核对 -->
+    <section id="tab-token" class="tab-panel">
+      <h3 class="group-title">会话记账 · 按次考试（宿主 usage，含缓存命中；数据源 exam-log）</h3>
+      <div class="card">
+        <!-- 每次考试的 token 单独成列：选批次看该次，选「全部合计」才汇总 -->
+        <div class="form-row"><label>考试批次</label><select id="runSelect"></select></div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-label">未命中输入</div><div class="stat-value" id="tokInput">—</div></div>
+        <div class="stat-card"><div class="stat-label">缓存命中</div><div class="stat-value" id="tokCacheHit">—</div></div>
+        <div class="stat-card"><div class="stat-label">缓存写入</div><div class="stat-value" id="tokCacheWrite">—</div></div>
+        <div class="stat-card"><div class="stat-label">输出</div><div class="stat-value" id="tokOutput">—</div></div>
+        <div class="stat-card"><div class="stat-label">合计 Token</div><div class="stat-value" id="tokTotal">—</div></div>
+        <div class="stat-card"><div class="stat-label">缓存命中率</div><div class="stat-value" id="tokHitRate">—</div></div>
+      </div>
+      <div class="card"><h3>用途总览 · 选中批次</h3><table class="mini-table"><thead><tr><th>用途</th><th>调用</th><th>未命中</th><th>命中</th><th>写入</th><th>输出</th><th>合计</th></tr></thead><tbody id="runPurposeBody"></tbody></table></div>
+      <!-- 会话记账口径的逐题明细（跟随上方批次选择）：行由 app.js 注入 #tokExamBody -->
+      <div class="card"><h3>逐题 Token · 选中批次</h3><table class="mini-table"><thead><tr><th>题目</th><th>状态</th><th>字数</th><th>未命中</th><th>命中</th><th>输出</th><th>合计</th></tr></thead><tbody id="tokExamBody"></tbody></table></div>
+      <div class="card api-mini">
+        <h3>API 直连台账（全部累计 · 仅供核对）</h3>
+        <div id="apiMini" class="muted small mono">—</div>
+      </div>
+    </section>
+
+    <!-- 设置：宿主 llm-pi-ai provider 编辑器。写入走宿主 settings，实时生效，不改 profile 文件以外的运行时 -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="card">
+        <h3>模型 Provider（宿主实时生效）</h3>
+        <div class="form-row">
+          <label>Provider</label>
+          <input id="providerId" list="providerIdList" placeholder="例如 dys-router" autocomplete="off">
+          <datalist id="providerIdList"></datalist>
+        </div>
+        <div class="form-row"><label>显示名</label><input id="providerDisplay" placeholder="留空 = Provider ID"></div>
+        <div class="form-row"><label>API 协议</label><select id="providerApi">
+          <option value="openai-completions">openai-completions</option>
+          <option value="openai-responses">openai-responses</option>
+          <option value="anthropic-messages">anthropic-messages</option>
+        </select></div>
+        <div class="form-row"><label>Base URL</label><input id="providerBase" placeholder="https://router.dys.asia/v1"></div>
+        <div class="form-row"><label>API Key</label><input id="providerKey" type="password" placeholder="留空则保持现有 key" autocomplete="new-password"></div>
+        <div id="providerKeyState" class="field-hint muted small">—</div>
+        <div class="form-row"><label>模型 ID</label><input id="providerModel" placeholder="deepseek-v4.1-flash"></div>
+        <div class="form-row"><label>模型显示名</label><input id="providerModelName" placeholder="留空 = 模型 ID"></div>
+        <div class="form-row"><label>上下文长度</label><input id="providerCtx" type="number" min="1" placeholder="1048576"></div>
+        <div class="form-row"><label>最大输出</label><input id="providerMax" type="number" min="1" placeholder="32768"></div>
+        <div class="form-row"><label>思考强度</label><select id="providerEffort">
+          <option value="">不设置（模型默认）</option>
+          <option value="off">off（关闭思考）</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select></div>
+        <div id="providerEffortInfo" class="field-hint muted small">保存时会为该模型补齐 off/low/medium/high 档位；强度写入默认模型。</div>
+        <label class="check-row"><input id="providerSetDefault" type="checkbox" checked> 设为默认模型（新会话/考试使用）</label>
+        <label class="check-row"><input id="providerSetConsolidation" type="checkbox" checked> 同步为记忆整理模型</label>
+        <div class="form-actions">
+          <button id="providerSave" class="btn btn-primary">保存并生效</button>
+          <button id="providerReload" class="btn">重新读取</button>
+        </div>
+        <div id="providerStatus" class="field-hint muted small">—</div>
+        <p class="muted small">保存会直接写入宿主的 llm-pi-ai settings（applies=live），无需重启宿主；API Key 只写入、不回显。</p>
+      </div>
+      <div class="card">
+        <h3>现有 Provider</h3>
+        <table id="providerTable" class="mini-table"><thead><tr><th>ID</th><th>显示名</th><th>协议</th><th>Base URL</th><th>模型</th><th>Key</th></tr></thead><tbody id="providerListBody"></tbody></table>
+        <div id="providerListEmpty" class="empty hidden">暂无 provider</div>
+        <p class="muted small">点击任意行可载入到上方表单；在 Provider 输入框里填新名字即可新建。</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- 右侧抽屉：题目详情/引文/判分细节，内容全部由 app.js 注入 #drawerTitle/#drawerBody -->
+  <aside id="drawer" class="drawer">
+    <div class="drawer-backdrop" data-action="close-drawer"></div>
+    <div class="drawer-panel">
+      <button id="drawerClose" class="drawer-close" data-action="close-drawer" aria-label="关闭">✕</button>
+      <div id="drawerTitle"></div>
+      <div id="drawerBody"></div>
+    </div>
+  </aside>
+
+  <!-- 契约：app.js 以 ES module 加载，路径与文件名不得改动 -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

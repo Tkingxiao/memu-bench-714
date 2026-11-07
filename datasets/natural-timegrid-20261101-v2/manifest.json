@@ -1,0 +1,24 @@
+{
+  "version": "natural-timegrid-20261101-v2-scored-public",
+  "source_release_manifest_sha256": "1d4026b58ac6fa02691960f54b16cc62308c34abd2d16bfe19d8a1fd6adb4b34",
+  "strict_timegrid_instances": 714,
+  "personas": [
+    "P01",
+    "P12",
+    "P14",
+    "P16",
+    "P17",
+    "P20"
+  ],
+  "file_sha256": {
+    "exam-inputs.jsonl": "584e1acd8f2dc334be5859e31e689f9e684f24be88e6d9c808318698c4ea6c63",
+    "read_exam.py": "ec62461112f6b4ad13efaee264ab8442b6daabdfb350beed81c6d46583ff0c7c",
+    "review-only/answer-key.jsonl": "07f390bbead123ed0f723a38d7642a0ca3367926e84d1af484b255284b2de392",
+    "histories/P01.jsonl": "5073b1f93db2110a0dda12d53ed009518727b72fb054bbe4a4435367ee53f198",
+    "histories/P12.jsonl": "9d762423961d7c5d4115c00cd8e8c3cbc2c13669cc3538e683fa9ac791528223",
+    "histories/P14.jsonl": "030dcaf5743f43bb99ed25aef1b81697b48af9b451c6b37494b5b21c5a3aeced",
+    "histories/P16.jsonl": "3b51c82455c65d91bb8fbfc22ce108e51dfad6ffa467604579b53921cb5632e5",
+    "histories/P17.jsonl": "a8b5b1f77f2a26651a9a2ce7dbe60b5da54129fafc0b57b15667143728f7851d",
+    "histories/P20.jsonl": "847ac8c7bb9e7f3d8c7227cb63847888c4b94b5c6bbabaa0d1eb6ff12821dc4f"
+  }
+}

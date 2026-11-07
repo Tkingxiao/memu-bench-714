@@ -1,0 +1,18 @@
+# ---- 本地私有 / 生成物（不随仓库发布）----
+backup/
+logs/*
+results/*
+workspace/*
+node_modules/
+*.log
+*.tmp
+*.tmp-*
+.env
+host-cookie.txt
+Thumbs.db
+.DS_Store
+
+# 占位文件保留，保证目录结构存在
+!logs/.gitkeep
+!results/.gitkeep
+!workspace/.gitkeep
