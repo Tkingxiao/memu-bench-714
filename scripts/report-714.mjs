@@ -147,7 +147,11 @@ function classify(row) {
   if (Array.isArray(row['未知当事实']) && row['未知当事实'].length > 0) {
     return { category: 'ambiguous', hard, forbidden, unknown: row['未知当事实'], reason: row.reason || '' }
   }
-  // 没有硬旗标、没有未知当事实，但 required 未满足或其它情况：归为错误
+  // 事实都对、只是主动多写了无关旧事被扣 relevance：归为可错可对（不是硬性事实错误）
+  if (row.factual_pass === true && row.relevance_pass === false) {
+    return { category: 'ambiguous', hard, forbidden, unknown: [], reason: row.reason || '' }
+  }
+  // 其余没有硬旗标但 required 未满足等情况仍归错误
   return { category: 'error', hard, forbidden, unknown: [], reason: row.reason || '', requiredMissing }
 }
 
@@ -223,12 +227,12 @@ const recallFeatures = modern
   : ['includes-lexical']
 
 const lines = [
-  `# Memu Bench 714 全量评测 · 得分汇报`,
+  `# Memu Bench 714 · 得分汇报`,
   '',
   `- 批次：\`${LABEL}\``,
   `- 插件：dsh-memu-memory \`${plugin.version}\``,
   `- 模型：dys-router / deepseek-v4.1-flash · 思考强度 high`,
-  `- 规模：714 题全量 · 并发 8 · 每轮按 cutoff 重建记忆库`,
+  `- 规模：${rows.length} 题${rows.length === inputs.length ? '（全量）' : `（抽样子集，数据集 ${inputs.length} 题）`} · 并发 8 · 每轮按 cutoff 重建记忆库`,
   `- 判分：deepseek-v4.1-flash · 分节备忘录判据`,
   '',
   '## 记忆与向量库',

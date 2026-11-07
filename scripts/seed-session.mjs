@@ -69,12 +69,15 @@ function buildTurnEvents(turnRow, turnNo, seqStart, shiftMs) {
     source: { kind: 'user' },
     role: 'user',
     id: uuid(),
+    // 逐轮逻辑时间，供插件整理 worker 把相对日期锚到这一轮，而不是入库时钟。
+    sceneTime: turnRow['逻辑时间'],
   }, { surfaceOp: 'append' })
   push('step/start', 200, { turn: turnNo, step: 1 })
   const text = turnRow['助手回复']
   push('assistant/message', 2500, {
     turn: turnNo,
     step: 1,
+    sceneTime: turnRow['逻辑时间'],
     message: {
       role: 'assistant',
       content: [{ type: 'text', text }],

@@ -158,17 +158,15 @@ function recentBlock(prefix, six = 6) {
 }
 
 /**
- * 作答提示：事无巨细的记忆备忘录。
- * 不要求固定空位，而是让模型把与问题相关的记忆按事实、时间、说话人、约定、
- * 冲突、边界、缺口分节写全；判分仍按 rubric 逐项核对，多写无关旧事会被记录。
+ * 作答提示：两种普通记忆备忘录。
+ * memo  = 事无巨细，按事实/时间/说话人/承诺/冲突分节写全；
+ * brief = 简明备忘录，只填关键项，不复述整段记忆（默认）。
+ * 两种都不含评测口径、分值暗示或 rubric 覆盖数量。
  */
-function examPrompt(record, prefix, slots = 1) {
-  const must = Math.max(1, Number(slots) || 1)
-  return [
-    '【背景说明】下面是这段对话最近几轮的原文记录，供你回忆上下文。更早的事情如果你记得可以自然使用，不记得就直说不知道，不要编造。',
-    '系统可能另外提供长期记忆片段；其中带有的时间、说话人/来源、冲突版本或到期提醒等标记是记忆结构，不是新的用户发言，按标记理解即可。',
-    '另外，这是一个长期记忆评测场景：请以长期记忆系统的身份整理记忆内容，不要模仿角色聊天或客套。',
-    '【评测约束】本题是只读评测：只回答问题，不要调用任何写入或修改记忆的工具，也不要把本题内容写进记忆。',
+function examPrompt(record, prefix, mode = 'brief') {
+  const context = [
+    '下面是这段对话最近几轮的原文，方便你回忆上下文。',
+    '系统可能另外给你一些长期记忆片段；其中的时间、说话人/来源、版本或到期提醒是记忆标记，不是新的用户发言，按标记理解即可。',
     '',
     '===== 最近对话记录开始 =====',
     recentBlock(prefix),
@@ -176,25 +174,34 @@ function examPrompt(record, prefix, slots = 1) {
     '',
     `【当前时间】${record.now}`,
     `【我的问题】${record.question}`,
-    '',
-    '【作答要求】不要只写一句话。请写一份“记忆备忘录”，把你记得的、与这个问题相关的全部内容分节列出，供人逐项核对。',
-    `题目要求至少覆盖 ${must} 个信息点；题目问到的每个子项都要有对应条目（例如日期要写清公历/农历，身份要写全）。`,
-    '',
-    '【备忘录格式】',
-    '结论：用一两句话直接回答题目。',
-    '事实明细：逐条列出人物、物品、地点、事件、偏好、称呼、关系等；每条单独一行。',
-    '时间线：每条事实的绝对日期或相对表述，标明是“发生/说到/生效/失效”；能区分公历/农历就写清。',
-    '原话与说话人：谁说的（用户 / 助手 / 第三方），尽量保留原话关键词。',
-    '约定与欠账：对谁、做什么、截止时间、是否完成。',
-    '冲突与改口：同一件事有几种说法，各自时间和说话人；无法确认时写“无法确认”。',
-    '边界与披露：能主动说 / 只在被问时说 / 不能说。',
-    '资料不足：题目要求但记忆里没有的信息，逐项写“不知道”。',
-    '',
-    '【硬要求】',
-    '1. 只写记忆里有证据的内容；不要补没证据的细节，不要编日期。',
-    '2. 与题目无关的旧事不要写。',
-    '3. 记不得的子项写“不知道”，不要猜。',
-    '4. 冲突说法都保留，不要自行删掉一种。',
+  ]
+  if (mode === 'memo') {
+    return [...context, '',
+      '请根据你记得的内容，写一份事无巨细的记忆备忘录来回答。不要只回一句话，把与问题相关的记忆都写出来，方便我逐项核对。',
+      '可以按下面的方式组织，不要求固定格式：',
+      '- 结论：先用一两句话直接回答。',
+      '- 事实明细：人物、物品、地点、事件、偏好、称呼、关系等，逐条写，每条一行。',
+      '- 时间：每条事实的绝对日期或相对时间，并注明是发生、说到、生效还是失效；能分清公历/农历就写清。',
+      '- 原话与说话人：谁说的（我 / 你 / 第三方），尽量保留原话关键词。',
+      '- 约定与欠账：对谁、做什么、什么时候到期、是否完成。',
+      '- 变化与冲突：同一件事有几种说法、各自时间和说话人；确认不了就写“无法确认”。',
+      '- 边界：哪些能主动说、哪些只在被问时说、哪些不能说。',
+      '- 不确定：记忆里没有或记不清的，直接写“不知道”，不要猜。',
+      '',
+      '只写记忆里有依据的内容，不要编日期、不要补没发生过的细节，也不要扯与问题无关的旧事。这次只是问我，不要改动或新增记忆。',
+    ].join('\n')
+  }
+  return [...context, '',
+    '请根据你记得的内容，写一份简明备忘录来回答。只填关键信息，简要但精准，不要复述整段记忆，也不要写成行为日志。',
+    '要求：人物、地点、时间、事情都要写具体；时间优先写绝对日期；记不清的项填“不知道”，不要猜；只写记忆里有依据的内容。',
+    '结论：____',
+    '人物：____',
+    '地点：____',
+    '时间：____',
+    '事情：____',
+    '原话/说话人：____',
+    '不确定：____',
+    '这次只是问我，不要改动或新增记忆。',
   ].join('\n')
 }
 
@@ -343,9 +350,9 @@ async function cleanupExamWrites(sessionId, libraryId, baselineIds) {
  * 单题作答。workspace/libraryId 由调用方给出（重建记忆时是 checkpoint 目录），
  * 未给时退回共享 workspace 库（--no-prepare 的旧路径）。
  */
-async function runOne(record, { workspace, libraryId, maxAttempts, slots = 1 }) {
+async function runOne(record, { workspace, libraryId, maxAttempts, promptMode = 'brief' }) {
   const prefix = loadPrefix(record)
-  const promptText = examPrompt(record, prefix, slots)
+  const promptText = examPrompt(record, prefix, promptMode)
   console.log('exam', record.id, 'cutoff_turn', record.cutoff_turn)
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const created = await callRoute('/api/session/create', 'session/create', { request: { cwd: workspace } })
@@ -506,7 +513,7 @@ function writeJsonAtomic(file, obj) {
  * 已完成的 cutoff 跳过，未完成的 checkpoint 重新整理（通常已无新事件）并补考剩余题。
  * 返回 qid -> row 的 Map。
  */
-async function runPersonaStream(persona, records, { label, concurrency, maxAttempts, slotsById, progress, existingRows, resume, onRow }) {
+async function runPersonaStream(persona, records, { label, concurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow }) {
   const ckRoot = path.join(ROOT, 'workspace', 'checkpoints', label, persona)
   fs.mkdirSync(ckRoot, { recursive: true })
   const statePath = path.join(ROOT, 'results', `run-state-${label}-${persona}.json`)
@@ -573,7 +580,7 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
     })
     if (remaining.length) {
       const groupRows = await pool(remaining, concurrency, (record) => runOne(record, {
-        workspace: ckRoot, libraryId, maxAttempts, slots: slotsById.get(record.id) || 1,
+        workspace: ckRoot, libraryId, maxAttempts, promptMode,
       }))
       for (const row of groupRows) {
         rows.set(row.id, row)
@@ -604,6 +611,8 @@ async function main() {
   const concurrency = clamp(Number(flag('concurrency', '4')) || 1, 1, 8)
   const personaConcurrency = clamp(Number(flag('persona-concurrency', '2')) || 1, 1, 6)
   const resume = has('resume')
+  const promptMode = flag('prompt-mode', 'brief')
+  if (!['memo', 'brief'].includes(promptMode)) { console.error('prompt-mode must be memo or brief'); process.exit(2) }
   const label = flag('label', path.basename(out, '.jsonl').replace(/^answers-/, ''))
   const prepareEnabled = !has('no-prepare')
   if (!ids.length) { console.error('usage: --ids id1,id2,... | --ids-file <file> --out file'); process.exit(2) }
@@ -617,14 +626,7 @@ async function main() {
     if (!record) { console.error('unknown id:', id); process.exit(2) }
     selected.push(record)
   }
-  // 备忘录提示用实际必答信息点数；不再按旧填空格式压到 2–3 个。
-  const slotsById = new Map()
-  for (const record of selected) {
-    const required = keyIndex.get(record.id)?.rubric?.required
-    const n = Array.isArray(required) ? required.length : 1
-    slotsById.set(record.id, Math.max(1, n))
-  }
-  console.log(`exam plan ids=${selected.length} concurrency=${concurrency} persona-parallel=${personaConcurrency} prepare=${prepareEnabled ? 'on' : 'off'} resume=${resume ? 'on' : 'off'} label=${label}`)
+  console.log(`exam plan ids=${selected.length} concurrency=${concurrency} persona-parallel=${personaConcurrency} prepare=${prepareEnabled ? 'on' : 'off'} resume=${resume ? 'on' : 'off'} prompt=${promptMode} label=${label}`)
 
   // 逐题作答即时追加到 out：崩溃后 --resume 会读回这些行，跳过已完成的题。
   fs.mkdirSync(path.dirname(out), { recursive: true })
@@ -665,7 +667,7 @@ async function main() {
     console.log(`prepare start personas=${entries.length} checkpoints=${checkpointTotal} questions=${selected.length} parallel=${personaWidth} exam-concurrency=${subConcurrency}`);
     const results = await pool(entries, personaWidth, ([persona, groupRecords]) =>
       runPersonaStream(persona, groupRecords, {
-        label, concurrency: subConcurrency, maxAttempts, slotsById, progress, existingRows, resume, onRow,
+        label, concurrency: subConcurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow,
       }));
     for (const res of results) {
       ckRoots.push(res.ckRoot)
@@ -681,7 +683,7 @@ async function main() {
       return !prior || !(typeof prior.answer === 'string' && prior.answer.trim() && prior.turnEnd === 'completed')
     })
     const results = await pool(remaining, concurrency, async (record) => {
-      const row = await runOne(record, { workspace, libraryId: null, maxAttempts, slots: slotsById.get(record.id) || 1 })
+      const row = await runOne(record, { workspace, libraryId: null, maxAttempts, promptMode })
       if (!row.sessionId) return row
       if (baseline === null) {
         try { baseline = await listMemoryIds(row.sessionId) } catch { baseline = null }
