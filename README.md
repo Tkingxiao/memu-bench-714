@@ -74,9 +74,9 @@
 
 这样早 cutoff 的题不会看到晚 cutoff 的记忆，避免“时间穿越”。
 
-### 3. 只读考试 + 结构化作答
+### 3. 只读考试 + 分节记忆备忘录
 
-考试会话不写入长期记忆。作答采用填空格式：按 rubric 信息点给空，题目问到的子项要完整（例如日期要区分公历/农历），不知道的项写「不知道」，与题目无关的内容不补充。
+考试会话不写入长期记忆。作答写成一份“记忆备忘录”：按结论、事实明细、时间线、原话与说话人、约定与欠账、冲突与改口、边界与披露、资料不足分节列出；题目问到的子项要完整（例如日期要区分公历/农历），不知道的项写「不知道」，与题目无关的内容不写。
 
 ### 4. 矛盾不替模型裁决
 
@@ -115,7 +115,7 @@
 | 可错可对 | 8 |
 | 总成本（谷价） | ¥24.45 |
 
-表内成绩属插件 `1.2.7`。仓库已按 `1.2.8` 适配：考试执行器在每个 cutoff 前把种子会话的 `sceneTime` 设为该轮逻辑时间，考试会话同样使用该题的场景时间；并核对 `initSession`、`setMemoryContext`、`listPrivate`、`listReviews`、`resolveReview`、`archiveMemory`、`deleteMemory`、`generatePrivate` 等调用与参数均向后兼容。尚未用 `1.2.8` 重跑全量，因此不把旧成绩写成新版本成绩。
+表内成绩属插件 `1.2.7`。仓库已连续适配 `1.2.8` / `1.2.9`：考试执行器在每个 cutoff 前把种子会话的 `sceneTime` 设为该轮逻辑时间，考试会话同样使用该题的场景时间；并核对 `initSession`、`setMemoryContext`、`listPrivate`、`listReviews`、`resolveReview`、`archiveMemory`、`deleteMemory`、`generatePrivate` 等调用与参数均向后兼容。尚未用 `1.2.9` 重跑全量，因此不把旧成绩写成新版本成绩。
 
 ### 插件 1.2.8 的评测面变化
 
@@ -125,6 +125,17 @@
 - **提示词**：RP guide / policy / consolidation 与整理 worker 任务书补充上述字段要求。
 
 本仓库的对应适配：种子会话与考试会话都按 cutoff 设置 `sceneTime`；考试提示允许按时间、说话人区分冲突双方；判分提示不把“保留冲突”误判为 `错否`；报告自动读取 profile 中实际加载的插件版本。表内成绩仍是 `1.2.7` 结果，`1.2.8` 需重跑后另行记录。
+
+### 插件 1.2.9 的评测面变化
+
+- **本地词法腿换 BM25**：`localRecall` 从 includes 计数改为 BM25（IDF、长度归一、dfCap、按库语料缓存，60s TTL 兜底）；`DSH_MEMU_RECALL_LEXICAL=includes` 可回退。检索排序和召回结果会与 1.2.8 不同，逐题不可直接对齐。
+- **槽位感知去重**：数字/日期/时间/星期/引号人名形成槽位签名；槽位不同不再按近重复折叠，子集视为补充，替换/不相交视为冲突。
+- **预算内图扩展**：关联扩展只填未满的 topK 座位，topK 已满时不追加，不增加注入 token。
+- **事实账本**：写入派生 `fact_authority` / `fact_evidence`；冲突卡只按 authority → observed_at → id 调整 A/B 顺序，不增加卡片文字。
+- **数据安全与生命周期**：永久删除支持 `preview` / `restore`，并写本地 `.deleted.json` 撤销缓冲；记忆包校验与整批回滚；向量提交失败标 `vectorPending`；新增绑定/向量 GC 工具（默认 dry-run）。
+- **无新增 LLM 调用、提示词或注入 token**：topK 与 `anchorTokens` / `turnTokens` / `injectionTotalTokens` 默认值不变。
+
+本仓库的对应适配：报告新增“词法腿 / 去重 / 图扩展 / 事实账本”配置行；`bench-reset` 删库时同步清理 `.deleted.json` 撤销缓冲；测试提示词改为分节记忆备忘录，判分提示同步接受该格式。`1.2.9` 尚未重跑，成绩仍归 `1.2.7`。
 
 ### 1.2.8 的省 token 变化
 

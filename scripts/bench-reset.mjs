@@ -42,6 +42,8 @@ const LIBRARY_ID = flag('library') || 'lib_4a9b8a60'
 const COOKIE_FILE = path.join(LOGS, 'host-cookie.txt')
 const RESET_LOG = path.join(LOGS, 'reset-log.jsonl')
 const TOKEN_LEDGER = path.join(LOGS, 'token-ledger.jsonl')
+// 1.2.9 起永久删除会写本地撤销缓冲；删库不会带走它，清理时要一起删。
+const UNDO_STASH = path.join(HOME, 'dsh-memu-memory', 'index', `${LIBRARY_ID}.deleted.json`)
 const DRY = has('dry-run')
 const KEEP_LIBRARY = has('keep-library')
 
@@ -210,6 +212,17 @@ async function main() {
   }
 
   // 解绑指向已删除会话的插件绑定；逐个调用，单个失败只记日志，不阻断清理。
+  let undoStashRemoved = false
+  if (!KEEP_LIBRARY && !DRY && (libraryResult?.ok || libraryResult?.skipped === 'absent')) {
+    try {
+      if (fs.existsSync(UNDO_STASH)) {
+        fs.rmSync(UNDO_STASH, { force: true })
+        undoStashRemoved = true
+      }
+    } catch (error) {
+      fs.appendFileSync(RESET_LOG, JSON.stringify({ ts: new Date().toISOString(), event: 'bench-reset-undo-stash-error', error: String(error?.message || error).slice(0, 200) }) + '\n')
+    }
+  }
   let bindingsRemoved = 0
   if (!DRY) {
     for (const sessionId of bindingIds) {
@@ -230,6 +243,7 @@ async function main() {
     projectionsRemoved: removedProjections.length,
     bindingsRemoved,
     library: KEEP_LIBRARY ? 'kept' : libraryResult,
+    undoStashRemoved,
     log: DRY ? '(dry run, not written)' : RESET_LOG,
   }
   console.log(JSON.stringify(summary, null, 1))

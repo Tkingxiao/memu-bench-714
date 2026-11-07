@@ -112,6 +112,17 @@ async function readIntentBudget(plugin) {
   } catch { return null }
 }
 
+function versionAtLeast(version, target) {
+  const va = String(version || '').split('.').map(Number)
+  const vb = String(target || '').split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const a = va[i] || 0
+    const b = vb[i] || 0
+    if (a !== b) return a > b
+  }
+  return true
+}
+
 const scored = readJsonl(path.join(RESULTS, `scored-${LABEL}.jsonl`))
 const reviews = readJsonl(path.join(RESULTS, `reviews-${LABEL}.jsonl`))
 const answers = readJsonl(path.join(RESULTS, `answers-${LABEL}.jsonl`))
@@ -206,6 +217,10 @@ const intentBudget = await readIntentBudget(plugin)
 const intentCapLine = intentBudget?.recallIntentTopK
   ? Object.entries(intentBudget.recallIntentTopK).map(([k, v]) => `${k} ${v}`).join(' · ') + ' · 封顶 20'
   : 'unknown'
+const modern = versionAtLeast(plugin.version, '1.2.9')
+const recallFeatures = modern
+  ? ['bm25-lexical', 'slot-aware-dedup', 'topk-fill-expansion', 'fact-ledger']
+  : ['includes-lexical']
 
 const lines = [
   `# Memu Bench 714 全量评测 · 得分汇报`,
@@ -214,7 +229,7 @@ const lines = [
   `- 插件：dsh-memu-memory \`${plugin.version}\``,
   `- 模型：dys-router / deepseek-v4.1-flash · 思考强度 high`,
   `- 规模：714 题全量 · 并发 8 · 每轮按 cutoff 重建记忆库`,
-  `- 判分：deepseek-v4.1-flash · 新填空判据`,
+  `- 判分：deepseek-v4.1-flash · 分节备忘录判据`,
   '',
   '## 记忆与向量库',
   '',
@@ -228,6 +243,14 @@ const lines = [
   `| 向量库 | 每库独立 SQLite：\`${vec.database}\` |`,
   `| 向量代际 | generation ${vec.generation ?? '?'}${vec.fingerprint ? `，fingerprint \`${vec.fingerprint}\`` : ''} |`,
   `| 召回 | \`${vec.recall}\` |`,
+  ...(modern ? [
+    '| 词法腿 | BM25（默认；`DSH_MEMU_RECALL_LEXICAL=includes` 可回退） |',
+    '| 去重 | 槽位感知（数字/日期/时间/星期/引号人名） |',
+    '| 图扩展 | 只补未满的 topK 座位，不追加注入 |',
+    '| 事实账本 | `fact_authority` / `fact_evidence`；冲突卡只调 A/B 顺序 |',
+  ] : [
+    '| 词法腿 | includes（旧口径） |',
+  ]),
   `| 召回意图上限 | ${intentCapLine} |`,
   `| 注入预算 | privateTopK ${injection.privateTopK ?? '?'} · anchorTokens ${injection.anchorTokens ?? '?'} · turnTokens ${injection.turnTokens ?? '?'} · injectionTotalTokens ${injection.injectionTotalTokens ?? '?'} |`,
   '',
@@ -286,6 +309,7 @@ fs.writeFileSync(JSON_OUT, JSON.stringify({
   plugin,
   injection,
   intentTopK: intentBudget?.recallIntentTopK || null,
+  recallFeatures,
   model: 'dys-router/deepseek-v4.1-flash',
   vector: vec,
   counts: { total: rows.length, pass: pass.length, error: errors.length, ambiguous: ambiguous.length },

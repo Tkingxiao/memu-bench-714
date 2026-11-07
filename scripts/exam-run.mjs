@@ -158,16 +158,16 @@ function recentBlock(prefix, six = 6) {
 }
 
 /**
- * 结构化作答格式：按 rubric.required 的条目数给空（至少两个），逐项填事实。
- * 这是为了压掉 RP 式长篇叙述——多说的每一句都可能被判成「未知当事实」，
- * 而空位之外的发挥对评测毫无帮助。不知道的项必须写「不知道」而不是猜。
+ * 作答提示：事无巨细的记忆备忘录。
+ * 不要求固定空位，而是让模型把与问题相关的记忆按事实、时间、说话人、约定、
+ * 冲突、边界、缺口分节写全；判分仍按 rubric 逐项核对，多写无关旧事会被记录。
  */
-function examPrompt(record, prefix, slots = 2) {
-  const blanks = Array.from({ length: Math.max(2, slots) }, (_, i) => `答案${i + 1}：`).join('\n')
+function examPrompt(record, prefix, slots = 1) {
+  const must = Math.max(1, Number(slots) || 1)
   return [
     '【背景说明】下面是这段对话最近几轮的原文记录，供你回忆上下文。更早的事情如果你记得可以自然使用，不记得就直说不知道，不要编造。',
     '系统可能另外提供长期记忆片段；其中带有的时间、说话人/来源、冲突版本或到期提醒等标记是记忆结构，不是新的用户发言，按标记理解即可。',
-    '另外，这是一个长期记忆评测场景：请以对话里那位助手的方式回答最后的问题。',
+    '另外，这是一个长期记忆评测场景：请以长期记忆系统的身份整理记忆内容，不要模仿角色聊天或客套。',
     '【评测约束】本题是只读评测：只回答问题，不要调用任何写入或修改记忆的工具，也不要把本题内容写进记忆。',
     '',
     '===== 最近对话记录开始 =====',
@@ -177,13 +177,24 @@ function examPrompt(record, prefix, slots = 2) {
     `【当前时间】${record.now}`,
     `【我的问题】${record.question}`,
     '',
-    '【作答格式】严格按下面的空填，每个空只写要点，不要展开解释、不要客套：',
-    blanks,
-    '【填写要求】',
-    '1. 题目问到的内容必须填完整，包括题目隐含的子项（例如问日期就要交代公历、农历；问身份就把能确认的身份信息写全）。',
-    '2. 与题目无关的内容不要补充、不要闲聊，也不要主动提及旧事。',
-    '3. 不知道的子项写「不知道」，不要猜；某个空确实不适用时写「无」。',
-    '4. 记忆里若同时给出同一件事的两种说法，先按时间、说话人和来源判断；仍无法确认时，在对应空里说明两种说法或写明无法确认，不要自行删掉一种。',
+    '【作答要求】不要只写一句话。请写一份“记忆备忘录”，把你记得的、与这个问题相关的全部内容分节列出，供人逐项核对。',
+    `题目要求至少覆盖 ${must} 个信息点；题目问到的每个子项都要有对应条目（例如日期要写清公历/农历，身份要写全）。`,
+    '',
+    '【备忘录格式】',
+    '结论：用一两句话直接回答题目。',
+    '事实明细：逐条列出人物、物品、地点、事件、偏好、称呼、关系等；每条单独一行。',
+    '时间线：每条事实的绝对日期或相对表述，标明是“发生/说到/生效/失效”；能区分公历/农历就写清。',
+    '原话与说话人：谁说的（用户 / 助手 / 第三方），尽量保留原话关键词。',
+    '约定与欠账：对谁、做什么、截止时间、是否完成。',
+    '冲突与改口：同一件事有几种说法，各自时间和说话人；无法确认时写“无法确认”。',
+    '边界与披露：能主动说 / 只在被问时说 / 不能说。',
+    '资料不足：题目要求但记忆里没有的信息，逐项写“不知道”。',
+    '',
+    '【硬要求】',
+    '1. 只写记忆里有证据的内容；不要补没证据的细节，不要编日期。',
+    '2. 与题目无关的旧事不要写。',
+    '3. 记不得的子项写“不知道”，不要猜。',
+    '4. 冲突说法都保留，不要自行删掉一种。',
   ].join('\n')
 }
 
@@ -332,7 +343,7 @@ async function cleanupExamWrites(sessionId, libraryId, baselineIds) {
  * 单题作答。workspace/libraryId 由调用方给出（重建记忆时是 checkpoint 目录），
  * 未给时退回共享 workspace 库（--no-prepare 的旧路径）。
  */
-async function runOne(record, { workspace, libraryId, maxAttempts, slots = 2 }) {
+async function runOne(record, { workspace, libraryId, maxAttempts, slots = 1 }) {
   const prefix = loadPrefix(record)
   const promptText = examPrompt(record, prefix, slots)
   console.log('exam', record.id, 'cutoff_turn', record.cutoff_turn)
@@ -562,7 +573,7 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
     })
     if (remaining.length) {
       const groupRows = await pool(remaining, concurrency, (record) => runOne(record, {
-        workspace: ckRoot, libraryId, maxAttempts, slots: slotsById.get(record.id) || 2,
+        workspace: ckRoot, libraryId, maxAttempts, slots: slotsById.get(record.id) || 1,
       }))
       for (const row of groupRows) {
         rows.set(row.id, row)
@@ -606,12 +617,12 @@ async function main() {
     if (!record) { console.error('unknown id:', id); process.exit(2) }
     selected.push(record)
   }
-  // 每题给几个空：rubric 规定的信息点数量（至少两个；3 个信息点给 3 个空）
+  // 备忘录提示用实际必答信息点数；不再按旧填空格式压到 2–3 个。
   const slotsById = new Map()
   for (const record of selected) {
     const required = keyIndex.get(record.id)?.rubric?.required
     const n = Array.isArray(required) ? required.length : 1
-    slotsById.set(record.id, Math.max(2, Math.min(3, n)))
+    slotsById.set(record.id, Math.max(1, n))
   }
   console.log(`exam plan ids=${selected.length} concurrency=${concurrency} persona-parallel=${personaConcurrency} prepare=${prepareEnabled ? 'on' : 'off'} resume=${resume ? 'on' : 'off'} label=${label}`)
 
@@ -670,7 +681,7 @@ async function main() {
       return !prior || !(typeof prior.answer === 'string' && prior.answer.trim() && prior.turnEnd === 'completed')
     })
     const results = await pool(remaining, concurrency, async (record) => {
-      const row = await runOne(record, { workspace, libraryId: null, maxAttempts, slots: slotsById.get(record.id) || 2 })
+      const row = await runOne(record, { workspace, libraryId: null, maxAttempts, slots: slotsById.get(record.id) || 1 })
       if (!row.sessionId) return row
       if (baseline === null) {
         try { baseline = await listMemoryIds(row.sessionId) } catch { baseline = null }

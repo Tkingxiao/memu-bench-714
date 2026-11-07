@@ -30,7 +30,7 @@
 ### 3.1 宿主与插件
 
 - 宿主版本：`0.2.2-rc.1`（需提供 `session/*` 网关与插件 RPC）。
-- 插件版本：成绩基线为 `dsh-memu-memory` `1.2.7`；`1.2.8` 已适配（种子会话在每个 cutoff 前设置该轮 `sceneTime`，RPC 与参数向后兼容），可直接沿用本手册流程，但需重新跑分后才能把成绩记到 `1.2.8`。
+- 插件版本：成绩基线为 `dsh-memu-memory` `1.2.7`；`1.2.8` / `1.2.9` 已适配（种子会话在每个 cutoff 前设置该轮 `sceneTime`，RPC 与参数向后兼容，报告读取真实插件版本、召回意图与注入预算）。需重新跑分后才能把成绩记到新版本。
 - profile：`memubench`。
 - 插件通过 `profiles/memubench/node_modules/dsh-memu-memory` 加载；该目录应指向 `<PLUGIN_ROOT>`。
 - 插件私有库绑定 `<REPO_ROOT>/workspace`。
@@ -363,6 +363,8 @@ node scripts/bench-reset.mjs --dry-run      # 演练
 node scripts/bench-reset.mjs                # 实删
 node scripts/bench-reset.mjs --keep-library # 保留记忆库，只清会话
 ```
+
+`1.2.9` 起永久删除会留下 `index/<library>.deleted.json` 撤销缓冲；删库成功后 `bench-reset` 会一并删除，`--keep-library` 时保留。
 
 ### 11.3 保留判分现场
 
