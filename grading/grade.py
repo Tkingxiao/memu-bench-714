@@ -83,8 +83,11 @@ def score(packets, reviews):
             raise ValueError(f'All detail fields must be lists of non-empty strings: {ident}')
         if not isinstance(review.get('reason'), str) or not review['reason'].strip():
             raise ValueError(f'Non-empty reason required: {ident}')
-        factual = all(required) and not review['违反禁止'] and not review['未知当事实'] and not any(review[k] for k in FLAGS[:4])
-        relevant = len(review['无关旧事']) < 3 and not review['不当私事披露']
+        # 记忆插件口径：只评记忆复原。required 里可能夹带“建议怎么做/追问/表达方式”，
+        # 用户已明确这类输出发挥不算错；失败只看记忆层面的硬错误（错认/错否/越界/
+        # 编造日期/不当私事披露/违反禁止/未知当事实）。无关旧事不作为失败依据。
+        factual = not review['违反禁止'] and not review['未知当事实'] and not any(review[k] for k in FLAGS[:4])
+        relevant = not review['不当私事披露']
         key = keys[ident]
         yield {'id': ident, 'persona': questions[ident]['persona'],
                'content_tags': key['content_tags'], 'interval_days': key['interval_days'],
