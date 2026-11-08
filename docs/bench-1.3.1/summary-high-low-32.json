@@ -1,0 +1,121 @@
+{
+  "passed": 17,
+  "scored": 32,
+  "dataset_questions": 714,
+  "groups": {
+    "persona": {
+      "P01": {
+        "total": 1,
+        "passed": 1
+      },
+      "P12": {
+        "total": 11,
+        "passed": 6
+      },
+      "P14": {
+        "total": 3,
+        "passed": 2
+      },
+      "P16": {
+        "total": 4,
+        "passed": 2
+      },
+      "P17": {
+        "total": 13,
+        "passed": 6
+      }
+    },
+    "content_tags": {
+      "资料不足": {
+        "total": 4,
+        "passed": 4
+      },
+      "没说完要跟进的事": {
+        "total": 1,
+        "passed": 1
+      },
+      "助手自己说过的话": {
+        "total": 11,
+        "passed": 6
+      },
+      "偏好": {
+        "total": 5,
+        "passed": 1
+      },
+      "带条件或期限的偏好和边界": {
+        "total": 3,
+        "passed": 0
+      },
+      "边界": {
+        "total": 1,
+        "passed": 0
+      },
+      "时间约定": {
+        "total": 5,
+        "passed": 5
+      },
+      "计划": {
+        "total": 2,
+        "passed": 2
+      },
+      "第三方事实": {
+        "total": 1,
+        "passed": 1
+      },
+      "用户的基本信息": {
+        "total": 3,
+        "passed": 1
+      },
+      "职业": {
+        "total": 3,
+        "passed": 1
+      },
+      "真实变化": {
+        "total": 6,
+        "passed": 4
+      },
+      "约定和欠账": {
+        "total": 4,
+        "passed": 3
+      },
+      "改口": {
+        "total": 3,
+        "passed": 2
+      },
+      "时间题": {
+        "total": 4,
+        "passed": 3
+      },
+      "相对日期": {
+        "total": 4,
+        "passed": 3
+      },
+      "分散的线索": {
+        "total": 4,
+        "passed": 3
+      },
+      "称呼条件": {
+        "total": 1,
+        "passed": 1
+      }
+    },
+    "interval_days": {
+      "0": {
+        "total": 2,
+        "passed": 2
+      },
+      "3": {
+        "total": 10,
+        "passed": 4
+      },
+      "15": {
+        "total": 8,
+        "passed": 5
+      },
+      "45": {
+        "total": 12,
+        "passed": 6
+      }
+    }
+  }
+}
