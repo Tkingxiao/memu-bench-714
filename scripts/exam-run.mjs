@@ -519,7 +519,7 @@ function writeJsonAtomic(file, obj) {
  * 已完成的 cutoff 跳过，未完成的 checkpoint 重新整理（通常已无新事件）并补考剩余题。
  * 返回 qid -> row 的 Map。
  */
-async function runPersonaStream(persona, records, { label, concurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow }) {
+async function runPersonaStream(persona, records, { label, concurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow, answerIds = null }) {
   const ckRoot = path.join(ROOT, 'workspace', 'checkpoints', label, persona)
   fs.mkdirSync(ckRoot, { recursive: true })
   const statePath = path.join(ROOT, 'results', `run-state-${label}-${persona}.json`)
@@ -580,7 +580,7 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
     console.log(`prepare ready ${tag} memories=${baseline.size}`)
     // 该 cutoff 的题并行；workspace 用 checkpoint 目录，保证会话日志与库绑定同一 scope。
     // 崩溃恢复时只补跑没有完整答案的题，已完成的题不重复作答。
-    const remaining = groups.get(cutoff).filter((record) => {
+    const remaining = groups.get(cutoff).filter((record) => !answerIds || answerIds.has(record.id)).filter((record) => {
       const prior = existingRows.get(record.id)
       return !prior || !(typeof prior.answer === 'string' && prior.answer.trim() && prior.turnEnd === 'completed')
     })
@@ -597,7 +597,7 @@ async function runPersonaStream(persona, records, { label, concurrency, maxAttem
     doneCutoffs.add(cutoff)
     saveState()
   }
-  console.log(`prepare persona done persona=${persona} checkpoints=${cutoffs.length} questions=${records.length} resumed=${doneCutoffs.size}`)
+  console.log(`prepare persona done persona=${persona} checkpoints=${cutoffs.length} questions=${answerIds ? records.filter((record) => answerIds.has(record.id)).length : records.length} resumed=${doneCutoffs.size}`)
   return { rows, libraryId, ckRoot }
 }
 
@@ -659,9 +659,25 @@ async function main() {
       if (!byPersona.has(record.persona)) byPersona.set(record.persona, [])
       byPersona.get(record.persona).push(record)
     }
+    // --all-checkpoints：为每个 persona 补齐到“最后一题的 cutoff”之间的所有 checkpoint，
+    // 只整理不答题；这样记忆库按完整 checkpoint 序列推进，不会因为抽样跳点而少写记忆。
+    const allCheckpoints = has('all-checkpoints')
+    const allByPersona = new Map()
+    if (allCheckpoints) {
+      for (const record of records) {
+        if (!allByPersona.has(record.persona)) allByPersona.set(record.persona, [])
+        allByPersona.get(record.persona).push(record)
+      }
+    }
     const entries = [...byPersona.entries()].map(([persona, groupRecords]) => {
-      groupRecords.sort((a, b) => a.cutoff_turn - b.cutoff_turn)
-      return [persona, groupRecords]
+      const answerIds = new Set(groupRecords.map((record) => record.id))
+      let consolidationRecords = groupRecords
+      if (allCheckpoints) {
+        const maxCutoff = Math.max(...groupRecords.map((record) => record.cutoff_turn))
+        consolidationRecords = (allByPersona.get(persona) || []).filter((record) => record.cutoff_turn <= maxCutoff)
+      }
+      consolidationRecords.sort((a, b) => a.cutoff_turn - b.cutoff_turn)
+      return [persona, consolidationRecords, answerIds]
     });
     const personaWidth = Math.max(1, Math.min(entries.length, personaConcurrency, concurrency));
     // 总并发守恒：多个 persona 流并行时，每条流内同时考的题数相应降低
@@ -671,9 +687,9 @@ async function main() {
       (sum, [, recs]) => sum + new Set(recs.map((r) => r.cutoff_turn)).size, 0);
     const progress = { done: 0, total: checkpointTotal };
     console.log(`prepare start personas=${entries.length} checkpoints=${checkpointTotal} questions=${selected.length} parallel=${personaWidth} exam-concurrency=${subConcurrency}`);
-    const results = await pool(entries, personaWidth, ([persona, groupRecords]) =>
+    const results = await pool(entries, personaWidth, ([persona, groupRecords, answerIds]) =>
       runPersonaStream(persona, groupRecords, {
-        label, concurrency: subConcurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow,
+        label, concurrency: subConcurrency, maxAttempts, promptMode, progress, existingRows, resume, onRow, answerIds,
       }));
     for (const res of results) {
       ckRoots.push(res.ckRoot)

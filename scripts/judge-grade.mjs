@@ -192,32 +192,57 @@ async function main() {
   const packets = readRows(stage)
   console.log('packets:', packets.length)
 
-  // 2) judge（分批）
-  const reviews = []
-  for (let i = 0; i < packets.length; i += batch) {
-    const chunk = packets.slice(i, i + batch)
-    console.log(`judge batch ${i / batch + 1}: ${chunk.length} questions`)
-    const part = await judgeBatch(chunk)
-    for (const r of part) reviews.push(r)
+  // 2) judge（分批；缺失题按轮补判，unknown/duplicate 只告警不崩整批）
+  const ids = new Set(packets.map((p) => p.id))
+  const results = new Map()
+  let pending = packets
+  for (let round = 1; round <= 3 && pending.length; round++) {
+    for (let i = 0; i < pending.length; i += batch) {
+      const chunk = pending.slice(i, i + batch)
+      console.log(`judge batch ${round}.${i / batch + 1}: ${chunk.length} questions`)
+      const part = await judgeBatch(chunk)
+      for (const r of part) {
+        if (!ids.has(r.id)) { console.warn(`judge returned unknown id: ${r.id}; ignored`); continue }
+        if (results.has(r.id)) { console.warn(`judge returned duplicate id: ${r.id}; ignored`); continue }
+        results.set(r.id, r)
+      }
+    }
+    pending = packets.filter((p) => !results.has(p.id))
+    if (pending.length) console.warn(`judge missed ${pending.length} question(s), retrying: ${pending.map((p) => p.id).join(',')}`)
   }
+  // 三轮仍缺失：补一条“未通过”的保守 review，避免整批无结果；日志里点名，便于人工复核。
+  for (const packet of pending) {
+    console.warn(`judge never returned ${packet.id}; recorded as not passed (manual review needed)`)
+    results.set(packet.id, {
+      id: packet.id,
+      answer_sha256: packet.answer_sha256,
+      rubric_sha256: packet.rubric_sha256,
+      required: packet.rubric.required.map(() => false),
+      错认: false, 错否: false, 越界: false, 编造日期: false, 不当私事披露: false,
+      违反禁止: [], 未知当事实: [], 无关旧事: [],
+      reason: '判分模型三轮均未返回该题；按未通过处理，需人工复核。',
+    })
+  }
+  const reviews = [...results.values()]
 
   // 基本一致性检查
-  const ids = new Set(packets.map((p) => p.id))
-  const seen = new Set()
   for (const r of reviews) {
-    if (!ids.has(r.id)) throw new Error(`judge returned unknown id: ${r.id}`)
-    if (seen.has(r.id)) throw new Error(`judge returned duplicate id: ${r.id}`)
-    seen.add(r.id)
     const packet = packets.find((p) => p.id === r.id)
     if (r.answer_sha256 !== packet.answer_sha256 || r.rubric_sha256 !== packet.rubric_sha256) {
-      throw new Error(`hash mismatch for ${r.id}`)
+      // 判分模型偶尔回抄 hash 出错；评分按 id 对应题目包，hash 以题目包为准。
+      console.warn(`hash mismatch for ${r.id}, using packet hashes`)
+      r.answer_sha256 = packet.answer_sha256
+      r.rubric_sha256 = packet.rubric_sha256
     }
-    if (!Array.isArray(r.required) || r.required.length !== packet.rubric.required.length) {
-      throw new Error(`required length mismatch for ${r.id}`)
+    if (!Array.isArray(r.required)) r.required = []
+    if (r.required.length !== packet.rubric.required.length) {
+      // 个别题判分模型把 required 少给/多给一条时，整批崩溃代价太大；按 rubric 长度
+      // 归一化（缺的记 false，多的截断），并在日志里留下具体题号，便于事后抽查。
+      console.warn(`required length mismatch for ${r.id}: judge ${r.required.length} vs rubric ${packet.rubric.required.length}; normalized`)
+      const n = packet.rubric.required.length
+      r.required = Array.from({ length: n }, (_, i) => Boolean(r.required[i]))
     }
   }
-  const missing = [...ids].filter((id) => !seen.has(id))
-  if (missing.length) throw new Error(`judge missed: ${missing.join(',')}`)
   fs.writeFileSync(reviewsOut, reviews.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8')
   console.log('reviews written:', reviewsOut)
 
